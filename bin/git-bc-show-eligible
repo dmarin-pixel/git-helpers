@@ -96,13 +96,13 @@ def build_first_parent_set(repo, from_commit, base_id):
     return {str(c.id) for c in walker} | {str(base_id)}
 
 
-def get_merge_children(repo, commit, first_parent_set):
+def get_merge_children(repo, commit, first_parent_set, hash_fn):
     """Return (children_set, alt_mainline_hash) for a merge commit.
 
     Scans all parents to find the mainline one (present in first_parent_set).
     Children are collected from all non-mainline parents (handles octopus merges).
-    alt_mainline_hash is set to the mainline parent's full hash only when it is
-    not parents[0], so callers can flag the anomaly; otherwise it is None.
+    alt_mainline_hash is set when the mainline parent was not parents[0], so
+    callers can flag the anomaly; otherwise it is None.
     """
     if len(commit.parents) < 2:
         return set(), None
@@ -117,7 +117,7 @@ def get_merge_children(repo, commit, first_parent_set):
         f'No parent of merge commit {commit.id} is on the mainline'
 
     mainline_parent = commit.parents[mainline_idx]
-    alt_mainline_hash = str(mainline_parent.id)[:12] if mainline_idx != 0 else None
+    alt_mainline_hash = hash_fn(mainline_parent.id) if mainline_idx != 0 else None
 
     children = set()
     for i, branch_parent in enumerate(commit.parents):
@@ -132,7 +132,7 @@ def get_merge_children(repo, commit, first_parent_set):
     return children, alt_mainline_hash
 
 
-def group_by_merge(repo, commits, first_parent_set):
+def group_by_merge(repo, commits, first_parent_set, hash_fn):
     """Group commits so each merge commit heads a list with its branch children.
 
     Returns list of (commits, alt_mainline_hash) tuples.
@@ -148,7 +148,7 @@ def group_by_merge(repo, commits, first_parent_set):
     for commit in commits:
         commit_id = str(commit.id)
         if len(commit.parents) >= 2:
-            children, alt_mainline = get_merge_children(repo, commit, first_parent_set)
+            children, alt_mainline = get_merge_children(repo, commit, first_parent_set, hash_fn)
             child_to_merge.update({c: commit_id for c in children})
         else:
             alt_mainline = None
@@ -191,6 +191,7 @@ def main():
                         default='HEAD', nargs='?')
     parser.add_argument('--since', metavar='COMMIT', help='Start checking since specified commit')
     parser.add_argument('--all', action='store_true', help='Show commits from all users')
+    parser.add_argument('--full', action='store_true', help='Show full commit hashes instead of abbreviated ones')
     parser.add_argument('--add-to-exclude-list', metavar='COMMIT', help='Add a merge commit hash so it, '
                         f'and its children, no longer are displayed in the output. This is saved in "{EXCLUDES_PATH}".')
 
@@ -248,15 +249,20 @@ def main():
         author_format_str = ' \033[31m| %s <%s>\033[0m'
         commit_format_str = '\033[33m%s\033[0m %s%s'
 
+    def short_id(oid):
+        return repo.get(oid).short_id
+
+    hash_fn = str if args.full else short_id
+
     def format_commit(commit):
         author_info = ''
         if args.all:
             author_info = author_format_str % (commit.author.name, commit.author.email)
         commit_msg = commit.message[:commit.message.index('\n')]
-        return commit_format_str % (str(commit.id), commit_msg, author_info)
+        return commit_format_str % (hash_fn(commit.id), commit_msg, author_info)
 
     first_parent_set = build_first_parent_set(repo, from_commit, base_id)
-    groups = group_by_merge(repo, find_unpicked(repo, from_commit, to_commit, since_commit, args.all), first_parent_set)
+    groups = group_by_merge(repo, find_unpicked(repo, from_commit, to_commit, since_commit, args.all), first_parent_set, hash_fn)
     print_groups(groups, excludes, format_commit)
 
 
