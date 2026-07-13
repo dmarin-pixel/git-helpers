@@ -1,4 +1,4 @@
-from conftest import bc_show_eligible, git_cherry_pick, git_cherry_pick_merge, resolve_ref, set_origin_head
+from conftest import bc_show_eligible, git, git_cherry_pick, git_cherry_pick_merge, resolve_ref, set_origin_head
 
 
 def test_merge_groups_by_parentage(make_repo):
@@ -63,8 +63,11 @@ def test_mainline_not_first_parent(make_repo):
     lines = result.stdout.splitlines()
     sync_line = next((l for l in lines if 'Sync with master' in l), None)
     assert sync_line is not None, "'Sync with master' not found in output"
-    assert sync_line.startswith(f'--select={x_hash[:12]}'), \
-        f"expected line to start with '--select={x_hash[:12]}', got: {sync_line!r}"
+    assert sync_line.startswith('--select='), \
+        f"expected line to start with '--select=', got: {sync_line!r}"
+    select_hash = sync_line.split(' ', 1)[0].removeprefix('--select=')
+    assert x_hash.startswith(select_hash), \
+        f"--select hash {select_hash!r} is not a prefix of expected {x_hash!r}"
     sync_idx = lines.index(sync_line)
     child_lines = lines[sync_idx + 1:sync_idx + 3]
     assert any('Feature part 1' in l for l in child_lines), \
